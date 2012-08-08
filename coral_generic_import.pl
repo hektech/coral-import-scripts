@@ -1,0 +1,309 @@
+#!/usr/bin/perl
+use strict;
+use DBI;
+use Text::CSV;
+use Getopt::Long;
+
+# READ IN CORAL DB VARIABLES
+our ($host, $port, $res_db, $org_db, $user, $pw);
+do 'coral_db.conf'; #grab DB variables
+
+
+#################
+##  DEV FLAGS  ##
+#################
+my $UPDATE_DB = 0; # 0 = don't make any changes to db
+my $DEBUG = 0;
+
+
+# GET COMMAND LINE OPTIONS
+# the first few variables do not belong in columns hash, but I want GetOptions to save the column variables in the hash automatically; this was the simplest way I could find; for more info see:
+# http://perldoc.perl.org/Getopt/Long.html#Storing-options-values-in-a-hash
+my $help = '';
+my $filename = '';
+my $titlecase = '';
+my %columns = ('help' => \$help, 'filename' => \$filename, 'titlecase' => \$titlecase);
+GetOptions (\%columns, 'help', 'filename=s', 'titlecase', 'title=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
+
+my $missing = 0;
+my @required_cols = ('filename', 'title', 'issn', 'url', 'publisher');
+foreach (@required_cols) {
+    $missing = 1 if not defined $columns{$_};
+}
+
+# If '-h' or '--help', or missing required options, print the help text
+if ($help or $missing) {
+    print <<"HELPTEXT";
+    Usage: coral_generic_import.pl -f FILENAME COLUMNS
+      COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -titlecase]
+
+      -f [--filename]: File must be in CSV format
+      -alt_issn: Provides a backup column if the first ISSN is blank (often used for print ISSN vs. e-ISSN)
+      -titlecase: Capitalizes only the first letter of every word (very basic)
+
+    NOTE: For any COLUMNS variable, give an integer to point to a column in the file (begins with zero); or give a value in quotes.
+HELPTEXT
+
+    if ($DEBUG) { #output variables
+        print "Opening file: $filename...\n";
+        foreach (@required_cols) {
+            if ( !exists($columns{$_}) ) {
+                print "ERROR: You must provide all of the following:\n\t" . join("\n\t", @required_cols) . "\n";
+            }
+            print "$_: $columns{$_}\n";
+        }
+    }
+    exit;
+}
+
+
+if ($UPDATE_DB) {
+    print "THIS WILL CHANGE THE DATABASE. PROCEED? [y/N] ";
+    my $input = <STDIN>;
+    chomp $input;
+    if ($input !~ /^[yY]$/) {
+        print "Aborting.\n";
+        exit;
+    }
+} else {
+    print "JUST TESTING (no changes to db)...\n";
+}
+
+
+# OPEN CSV FILE
+# (do this early; don't waste time with DB if file not found)
+my $csv = Text::CSV->new() or die "Cannot use CSV: ".Text::CSV->error_diag ();
+open my $fh, "<:encoding(utf8)", $filename or die "$filename: $!\n";
+
+
+# CONNECT TO CORAL DB SERVER
+my $res_dbh = DBI->connect("dbi:mysql:$res_db:$host:$port", $user, $pw) or die $DBI::errstr;
+my $org_dbh = DBI->connect("dbi:mysql:$org_db:$host:$port", $user, $pw) or die $DBI::errstr;
+
+# GLOBALS
+my %orgs = ();
+
+my $count_res_created = 0;
+my $count_res_found = 0;
+my $count_alt_issns = 0;
+
+# CONSTANTS
+my $STATUS_IN_PROGRESS = 1;
+my $RESOURCE_TYPE_PERIODICALS = 4;
+
+# HELPFUL HASHES
+my %ORG_ROLES = ('consortium' => 1, 'library' => 2, 'platform' => 3, 'provider' => 4, 'publisher' => 5, 'vendor' => 6);
+my @optional_org_types = ('provider', 'platform', 'consortium', 'vendor');
+
+
+# PREPARE REPEATED QUERIES (for efficiency)
+my $query;
+
+# find existing resource by ISSN or title
+$query = "SELECT `resourceID` FROM `Resource` WHERE `isbnOrISSN` LIKE ?";
+my $qh_get_res = $res_dbh->prepare($query);
+
+# create new resource
+$query = "INSERT INTO `Resource` (`createDate`, `createLoginID`, `titleText`, `isbnOrISSN`, `statusID`, `resourceTypeID`, `resourceURL`) VALUES (CURDATE(), 'system', ?, ?, $STATUS_IN_PROGRESS, $RESOURCE_TYPE_PERIODICALS, ?)";
+my $qh_new_res = $res_dbh->prepare($query);
+
+# create new organization
+$query = "INSERT INTO `Organization` (`createDate`, `createLoginID`, `name`, `noteText`) VALUES (CURDATE(), 'system', ?, ?)";
+my $qh_new_org = $org_dbh->prepare($query);
+
+# link resource to an organization (only for new orgs)
+$query = "INSERT INTO `ResourceOrganizationLink` (`resourceID`, `organizationID`, `organizationRoleID`) VALUES (?, ?, ?)";
+my $qh_res_org_link = $res_dbh->prepare($query);
+
+# find existing links for this org and resource
+$query = "SELECT `organizationRoleID` FROM `ResourceOrganizationLink` WHERE `resourceID` = ? AND `organizationID` = ?";
+my $qh_find_res_org_links = $res_dbh->prepare($query);
+
+
+
+# GRAB EXISTING ORGS FROM CORAL DB
+$query = "SELECT `organizationID`, `name` FROM `Organization`";
+my $qh_temp = $org_dbh->prepare($query);
+$qh_temp->execute();
+
+while (my ($org_id, $org_name) = $qh_temp->fetchrow_array) {
+    my $standard_name = standardize_org_name($org_name);
+    $orgs{$standard_name} = {
+        'id' => $org_id, 
+        'matches' => 0, 
+        'coral_name' => $org_name
+    };
+}
+
+
+# READ LINES FROM FILEHANDLE
+my $line_num = 0;
+my $row = $csv->getline( $fh ); # THROW AWAY HEADER ROW
+
+while ( $row = $csv->getline( $fh ) ) {
+    $line_num++;
+
+    my %values = ();
+    foreach my $key (keys %columns) {
+        #if column reference, grab value from row
+        if ($columns{$key} =~ /^(\d+)/) {
+            $values{$key} = $row->[$1];
+        } else { #otherwise, grab constant
+            $values{$key} = $columns{$key};
+        }
+    }
+
+# CREATE RESOURCE
+
+    #grab org id for publisher, required
+    my %org_ids = ();
+    my $temp_name = standardize_org_name($values{'publisher'});
+    if (exists $orgs{$temp_name}) {
+        $org_ids{'publisher'} = $orgs{$temp_name}->{id};
+
+        #grab org id for optional orgs
+        foreach my $org_type (@optional_org_types) {
+            if (defined($columns{$org_type})) {
+                $temp_name = standardize_org_name($values{$org_type});
+                if (exists $orgs{$temp_name}) {
+                    $org_ids{$org_type} = $orgs{$temp_name}->{id};
+                } else {
+                    print "WARN: Org not found: $org_type = [$temp_name]\n";
+                }
+            }
+        }
+        create_res(\%org_ids, \%values);
+
+    } else {
+        #TODO consider creating the Org
+        print "WARN: Could not create Resource without Org. Org not found: [$temp_name]\n";
+    }
+}
+
+$csv->eof or $csv->error_diag();
+close $fh;
+
+
+# OUTPUT SUMMARY
+print "\n-------------\n";
+print "Found  : $count_res_found Resources (already in Coral)\n";
+print "Created: $count_res_created Resources\n";
+print "-- used: $count_alt_issns Alternate ISSNs\n";
+print "-------------\n";
+
+exit;
+
+
+
+
+# FUNCTION: Create or SKIP a resource if found (matching on ISSN)
+# - don't overwrite any data
+# - add link to EBSCOnet record, if needed
+sub create_res {
+    my ($org_ids_ref, $params) = (shift, shift);
+    my $title = $params->{'title'};
+    my $issn = $params->{'issn'};
+    my $url = $params->{'url'};
+    my $res_id = 0;
+
+    # if ISSN column is blank, use alternate if supplied
+    if (!$issn and defined($params->{'alt_issn'})) {
+        $issn = $params->{'alt_issn'};
+        $count_alt_issns++;
+    }
+    my ($checkable_issn, $standardized_issn) = ($issn, $issn);
+    $checkable_issn =~ s/[- ]/_/g; #for searching DB, wildcard allows for various ISSN formats
+    $standardized_issn =~ s/[- ]/-/g; #for inserting into DB
+
+    if ($url !~ m{http://.*}) {
+        $url = '';
+    }
+
+# SEARCH BY ISSN
+    if ($standardized_issn =~ /[xX\d]{4}-[xX\d]{4}/) {
+        $qh_get_res->execute($checkable_issn); #only returns true, not num of rows
+        $res_id = $qh_get_res->fetchrow_array; #grab the ID
+
+        if ($res_id) { #if found a match
+            print "**** SKIPPING Existing Resource ($res_id): [$issn] $title ($url)\n";
+            $count_res_found++;
+        }
+    } else {
+        print "#### MAY CREATE DUPLICATE (bad or missing ISSN [$standardized_issn])...\n";
+        $standardized_issn = "";
+    }
+
+    if (!$standardized_issn or !$res_id) {
+        $title = cleanup_res_name($title);
+        if ($titlecase) {
+            $title = lc($title);
+            $title =~ s/\b(\w)/\u$1/g; #capitalize first letter of each word
+        }
+        print "Creating new Resource: [$standardized_issn] $title ($url)\n";
+
+        my $rows_affected = $qh_new_res->execute($title, $standardized_issn, $url) if $UPDATE_DB;
+        if ($rows_affected == 1 or !$UPDATE_DB) {
+            $count_res_created++;
+            $res_id = $res_dbh->last_insert_id(0, 0, 0, 0); #0s prevent error about expected params, but mysql appears to ignore them (re: DBI docs in cpan)
+
+            # linking resource to publisher
+            $qh_res_org_link->execute($res_id, $org_ids_ref->{'publisher'}, $ORG_ROLES{'publisher'}) if $UPDATE_DB;
+            # linking resource to optional orgs
+            foreach my $org_type (@optional_org_types) {
+                if (defined $org_ids_ref->{$org_type}) {
+                    $qh_res_org_link->execute($res_id, $org_ids_ref->{$org_type}, $ORG_ROLES{$org_type}) if $UPDATE_DB;
+                }
+            }
+        }
+    }
+    return $res_id;
+}
+
+
+# FUNCTION: Clean up and standardize the Org name
+sub standardize_org_name {
+    my $name = shift;
+    $name = uc($name);
+
+    # REMOVE punctuation, common words, abbrevs, extra spaces
+    $name =~ s/[&,'\.]//g;
+    $name =~ s/-/ /g;
+    $name =~ s/\b(CO|INC|LLC|LTD|GMBH|AND|FOR|OF)\b//g; #often omitted
+    $name =~ s/\b(PUBL|PUBLISHERS|PUBLISHING)\b//g; #often abbrev, generic
+    $name =~ s/\b(LIMITED|PRESS)\b//g; #often abbrev, generic
+#creates false positivies # $name =~ s/\/.*$//; #remove "/" and everything after 
+    $name =~ s/%.*$//; #remove "%" and everything after
+    $name =~ s/^[\s]*//; #trim opening whitespace
+    $name =~ s/[\s]*$//; #trim trailing whitespace
+    $name =~ s/[\s][\s]+/ /g; #collapse whitespace into one space
+
+    # EXPAND certain abbrevs
+    $name =~ s/\bAERO\b/AERONAUTICS/i;
+    $name =~ s/\bAMER\b/AMERICAN/i; #or America?
+    $name =~ s/\bASSN\b/ASSOCIATION/i;
+    $name =~ s/\b(CTR|CNTR)\b/CENTER/i;
+    $name =~ s/\bINST\b/INSTITUTE/i;
+    $name =~ s/\bNATL\b/NATIONAL/i;
+    $name =~ s/\bNO\b/NORTH/i;
+    $name =~ s/\b(RES|RSCH)\b/RESEARCH/i;
+    $name =~ s/\bSOC\b/SOCIETY/i;
+    $name =~ s/\bSVCS\b/SERVICES/i;
+    $name =~ s/\bUNIV\b/UNIVERSITY/i;
+    
+    return $name;
+}
+
+
+# FUNCTION: Clean up and standardize the Resource name
+sub cleanup_res_name {
+    my $name = shift;
+    $name = uc($name);
+
+    # REMOVE extra spaces
+    $name =~ s/^[\s]*//; #trim opening whitespace
+    $name =~ s/[\s]*$//; #trim trailing whitespace
+    $name =~ s/[\s][\s]+/ /g; #collapse whitespace into one space
+
+    return $name;
+}
+
