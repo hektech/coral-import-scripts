@@ -62,7 +62,7 @@ if ($UPDATE_DB) {
         exit;
     }
 } else {
-    print "JUST TESTING (no changes to db)...\n";
+    print "JUST TESTING (no changes to db; change UPDATE_DB to 1 to make real changes)...\n";
 }
 
 
@@ -263,6 +263,8 @@ print "---------------------------------------\n";
 
 if (!$UPDATE_DB) {
     print "*** JUST TESTING (no changes to db) ***\n";
+    print "*** - change UPDATE_DB to 1 to make ***\n";
+    print "***   real changes.                 ***\n";
     print "---------------------------------------\n";
 }
 
