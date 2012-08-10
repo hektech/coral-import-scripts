@@ -4,11 +4,6 @@ use DBI;
 use Text::CSV;
 use Getopt::Long;
 
-# READ IN CORAL DB VARIABLES
-our ($host, $port, $res_db, $org_db, $user, $pw);
-do 'coral_db.conf'; #grab DB variables
-
-
 #################
 ##  DEV FLAGS  ##
 #################
@@ -21,9 +16,10 @@ my $DEBUG = 0;
 # http://perldoc.perl.org/Getopt/Long.html#Storing-options-values-in-a-hash
 my $help = '';
 my $filename = '';
+my $config_filename = 'coral_db.conf'; #set default
 my $titlecase = '';
-my %columns = ('help' => \$help, 'filename' => \$filename, 'titlecase' => \$titlecase);
-GetOptions (\%columns, 'help|h', 'filename|f=s', 'titlecase', 'title|t=s', 'title_num|t_num=s', 'issn=s', 'alt_issn=s', 'format=s', 'title_url|url=s', 'price=s', 'publisher|pub=s', 'publisher_number|pub_num=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
+my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase);
+GetOptions (\%columns, 'help|h', 'filename|f=s', 'config_file=s', 'titlecase', 'title|t=s', 'title_num|t_num=s', 'issn=s', 'alt_issn=s', 'format=s', 'title_url|url=s', 'price=s', 'publisher|pub=s', 'publisher_number|pub_num=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
 
 my $missing = 0;
 my @required_cols = ('filename', 'title', 'title_num', 'issn', 'publisher', 'publisher_number');
@@ -76,10 +72,15 @@ my $csv = Text::CSV->new() or die "Cannot use CSV: ".Text::CSV->error_diag ();
 open my $fh, "<:encoding(utf8)", $filename or die "$filename: $!";
 
 
+# READ IN CORAL DB VARIABLES
+our ($host, $port, $res_db, $org_db, $user, $pw);
+do $config_filename; #grab DB variables
+
 # PERL DBI CONNECT
 print "Connecting to database...\n" if $DEBUG;
 my $res_dbh = DBI->connect("dbi:mysql:$res_db:$host:$port", $user, $pw) or die $DBI::errstr;
 my $org_dbh = DBI->connect("dbi:mysql:$org_db:$host:$port", $user, $pw) or die $DBI::errstr;
+
 
 # GLOBALS
 my %orgs = ();
