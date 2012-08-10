@@ -185,11 +185,17 @@ close $fh;
 
 
 # OUTPUT SUMMARY
-print "\n-------------\n";
+print "\n---------------------------------------\n";
 print "Found  : $count_res_found Resources (already in Coral)\n";
 print "Created: $count_res_created Resources\n";
 print "-- used: $count_alt_issns Alternate ISSNs\n";
-print "-------------\n";
+print "---------------------------------------\n";
+
+if (!$UPDATE_DB) {
+    print "*** JUST TESTING (no changes to db) ***\n";
+    print "---------------------------------------\n";
+}
+
 
 exit;
 
