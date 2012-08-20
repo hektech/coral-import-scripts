@@ -31,14 +31,17 @@ foreach (@required_cols) {
 # If '-h' or '--help', or missing required options, print the help text
 if ($help or $missing) {
     print <<"HELPTEXT";
-    Usage: coral_generic_import.pl -f FILENAME COLUMNS
-      COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -titlecase]
+Usage: coral_generic_import.pl -f FILENAME COLUMNS
 
-      -f [--filename]: File must be in CSV format
-      -alt_issn: Provides a backup column if the first ISSN is blank (often used for print ISSN vs. e-ISSN)
-      -titlecase: Capitalizes only the first letter of every word (very basic)
+      COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -titlecase -utf8]
 
-    NOTE: For any COLUMNS variable, give an integer to point to a column in the file (begins with zero); or give a value in quotes.
+      -f [--filename]:  File must be in CSV format
+      -alt_issn:        Specify a backup column if the first ISSN is blank (often used for print ISSN vs. e-ISSN)
+      -titlecase:       Capitalize only the first letter of every word in title (very basic)
+      -utf8:            Read the CSV file as UTF-8 data
+
+NOTE: For any COLUMNS variable, give an integer to point to a column in the file (begins with zero); or give a value in quotes.
+
 HELPTEXT
 
     if ($DEBUG) { #output variables
