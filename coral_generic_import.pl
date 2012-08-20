@@ -14,10 +14,10 @@ my $DEBUG = 0;
 # GET COMMAND LINE OPTIONS
 # the first few variables do not belong in columns hash, but I want GetOptions to save the column variables in the hash automatically; this was the simplest way I could find; for more info see:
 # http://perldoc.perl.org/Getopt/Long.html#Storing-options-values-in-a-hash
-my $help = '';
-my $filename = '';
+my $help;
+my $filename;
 my $config_filename = 'coral_db.conf'; #set default
-my $titlecase = '';
+my $titlecase;
 my $utf8;
 my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase, 'utf8' => \$utf8);
 GetOptions (\%columns, 'help', 'filename=s', 'config_file=s', 'titlecase', 'utf8', 'title=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
@@ -248,7 +248,7 @@ sub create_res {
     my $res_id = 0;
 
     # if ISSN column is blank, use alternate if supplied
-    if (!$issn and defined($params->{'alt_issn'})) {
+    if (!$issn and $params->{'alt_issn'}) {
         $issn = $params->{'alt_issn'};
         $count_alt_issns++;
     }
@@ -306,7 +306,7 @@ sub create_res {
             }
 
             # add purchasing site info, if provided
-            if (defined($purch_site_id)) {
+            if ($purch_site_id) {
                 $qh_new_res_purch->execute($res_id, $purch_site_id) if $UPDATE_DB;
             }
         }
