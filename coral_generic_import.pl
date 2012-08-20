@@ -18,8 +18,9 @@ my $help = '';
 my $filename = '';
 my $config_filename = 'coral_db.conf'; #set default
 my $titlecase = '';
-my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase);
-GetOptions (\%columns, 'help', 'filename=s', 'config_file=s', 'titlecase', 'title=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
+my $utf8;
+my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase, 'utf8' => \$utf8);
+GetOptions (\%columns, 'help', 'filename=s', 'config_file=s', 'titlecase', 'utf8', 'title=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
 
 my $missing = 0;
 my @required_cols = ('filename', 'title', 'issn', 'url', 'publisher');
@@ -68,8 +69,9 @@ if ($UPDATE_DB) {
 
 # OPEN CSV FILE
 # (do this early; don't waste time with DB if file not found)
-my $csv = Text::CSV->new() or die "Cannot use CSV: ".Text::CSV->error_diag ();
-open my $fh, "<:encoding(utf8)", $filename or die "$filename: $!\n";
+my $csv = Text::CSV->new({ binary => 1 }) or die "Cannot use CSV: ".Text::CSV->error_diag ();
+my $encoding = ":encoding(utf8)" if $utf8;
+open my $fh, "<$encoding", $filename or die "$filename: $!\n";
 
 
 # READ IN CORAL DB VARIABLES
