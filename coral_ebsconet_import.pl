@@ -398,7 +398,10 @@ sub create_res {
         $title = cleanup_res_name($title);
         if ($titlecase) {
             $title = lc($title);
-            $title =~ s/\b(\w)/\u$1/g; #capitalize first letter of each word
+            # capitalize first letter of each word
+            #$title =~ s/\b(\w)/\u$1/g; #doesn't work with binary chars
+            $title =~ s/^(\w)/\u$1/; #capitalize first letter of string
+            $title =~ s/([-\s])(\w)/$1\u$2/g; #capitalize first letter after hyphen or space
         }
         print "Creating new Resource: [$standardized_issn] $title ($url)\n";
 
