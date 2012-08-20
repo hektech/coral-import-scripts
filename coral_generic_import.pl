@@ -19,7 +19,7 @@ my $filename = '';
 my $config_filename = 'coral_db.conf'; #set default
 my $titlecase = '';
 my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase);
-GetOptions (\%columns, 'help', 'filename=s', 'config_file=s', 'titlecase', 'title=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
+GetOptions (\%columns, 'help', 'filename=s', 'config_file=s', 'titlecase', 'title=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
 
 my $missing = 0;
 my @required_cols = ('filename', 'title', 'issn', 'url', 'publisher');
@@ -87,14 +87,19 @@ my %orgs = ();
 my $count_res_created = 0;
 my $count_res_found = 0;
 my $count_alt_issns = 0;
+my $count_pymt_added = 0;
 
 # CONSTANTS
 my $STATUS_IN_PROGRESS = 1;
 my $RESOURCE_TYPE_PERIODICALS = 4;
+my $CURRENCY_CODE_USA = 'USD';
 
 # HELPFUL HASHES
 my %ORG_ROLES = ('consortium' => 1, 'library' => 2, 'platform' => 3, 'provider' => 4, 'publisher' => 5, 'vendor' => 6);
 my @optional_org_types = ('provider', 'platform', 'consortium', 'vendor');
+my %acq_type_ids = ('Paid' => 1, 'Free' => 2, 'Trial' => 3);
+my %order_types = ('Ongoing' => 1, 'One Time' => 2);
+my %purchase_sites = ('Main Library' => 1, 'Seminary' => 2); #DB table name: PurchaseSite
 
 
 # PREPARE REPEATED QUERIES (for efficiency)
@@ -107,6 +112,15 @@ my $qh_get_res = $res_dbh->prepare($query);
 # create new resource
 $query = "INSERT INTO `Resource` (`createDate`, `createLoginID`, `titleText`, `isbnOrISSN`, `statusID`, `resourceTypeID`, `resourceURL`) VALUES (CURDATE(), 'system', ?, ?, $STATUS_IN_PROGRESS, $RESOURCE_TYPE_PERIODICALS, ?)";
 my $qh_new_res = $res_dbh->prepare($query);
+
+# create a payment for a resource
+# NOTE: paymentAmount is in cents (i.e. $40.00 -> "4000")
+$query = "INSERT INTO `ResourcePayment`(`resourceID`, `fundName`, `paymentAmount`, `orderTypeID`, `currencyCode`) VALUES (?, ?, ?, ?, $CURRENCY_CODE_USA)";
+my $qh_new_res_pymt = $res_dbh->prepare($query);
+
+# create a purchasing site for a resource
+$query = "INSERT INTO `ResourcePurchaseSiteLink`(`resourceID`, `purchaseSiteID`) VALUES (?, ?)";
+my $qh_new_res_purch = $res_dbh->prepare($query);
 
 # create new organization
 $query = "INSERT INTO `Organization` (`createDate`, `createLoginID`, `name`, `noteText`) VALUES (CURDATE(), 'system', ?, ?)";
@@ -190,6 +204,7 @@ print "\n---------------------------------------\n";
 print "Found  : $count_res_found Resources (already in Coral)\n";
 print "Created: $count_res_created Resources\n";
 print "-- used: $count_alt_issns Alternate ISSNs\n";
+print "-- added: $count_pymt_added Prices\n";
 print "---------------------------------------\n";
 
 if (!$UPDATE_DB) {
@@ -213,6 +228,18 @@ sub create_res {
     my $title = $params->{'title'};
     my $issn = $params->{'issn'};
     my $url = $params->{'url'};
+    my $price = $params->{'price'};
+    my $acq_type_id = undef;
+    if (defined $price) {
+        $acq_type_id = ($price > 0) ? $acq_type_ids{'Paid'} : $acq_type_ids{'Free'}; #if 'Amount' > 0
+        # convert dollars to cents ('$40' -> '4000', '50.5' -> '5050')
+        $price =~ s/^\$?(\d+)$/$1.00/; #if no decimal, add it for uniformity
+        $price =~ s/^\$?(\d+)\.(\d)$/$1.${2}0/; #if incomplete decimal, add '0'
+        $price =~ s/[\$\.]//g; #remove punctuation
+    }
+    my $fund = $params->{'fund'};
+    my $order_type = $order_types{$params->{'order_type'}};
+    my $purch_site_id = $purchase_sites{$params->{'purchasing_site'}};
     my $res_id = 0;
 
     # if ISSN column is blank, use alternate if supplied
@@ -262,6 +289,17 @@ sub create_res {
                 if (defined $org_ids_ref->{$org_type}) {
                     $qh_res_org_link->execute($res_id, $org_ids_ref->{$org_type}, $ORG_ROLES{$org_type}) if $UPDATE_DB;
                 }
+            }
+
+            # add payment info, if provided
+            if ($price and $fund) {
+                $qh_new_res_pymt->execute($res_id, $fund, $price, $order_type) if $UPDATE_DB;
+                $count_pymt_added++;
+            }
+
+            # add purchasing site info, if provided
+            if (defined($purch_site_id)) {
+                $qh_new_res_purch->execute($res_id, $purch_site_id) if $UPDATE_DB;
             }
         }
     }
