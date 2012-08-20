@@ -20,7 +20,7 @@ my $config_filename = 'coral_db.conf'; #set default
 my $titlecase;
 my $utf8;
 my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase, 'utf8' => \$utf8);
-GetOptions (\%columns, 'help', 'filename=s', 'config_file=s', 'titlecase', 'utf8', 'title=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
+GetOptions (\%columns, 'help|h', 'filename|f=s', 'config_file=s', 'titlecase|tc', 'utf8', 'title|t=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
 
 my $missing = 0;
 my @required_cols = ('filename', 'title', 'issn', 'url', 'publisher');
