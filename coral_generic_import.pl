@@ -120,7 +120,7 @@ my $qh_new_res = $res_dbh->prepare($query);
 
 # create a payment for a resource
 # NOTE: paymentAmount is in cents (i.e. $40.00 -> "4000")
-$query = "INSERT INTO `ResourcePayment`(`resourceID`, `fundName`, `paymentAmount`, `orderTypeID`, `currencyCode`) VALUES (?, ?, ?, ?, $CURRENCY_CODE_USA)";
+$query = "INSERT INTO `ResourcePayment`(`resourceID`, `fundName`, `paymentAmount`, `orderTypeID`, `currencyCode`) VALUES (?, ?, ?, ?, '$CURRENCY_CODE_USA')";
 my $qh_new_res_pymt = $res_dbh->prepare($query);
 
 # create a purchasing site for a resource
@@ -238,7 +238,7 @@ sub create_res {
     if (defined $price) {
         $acq_type_id = ($price > 0) ? $acq_type_ids{'Paid'} : $acq_type_ids{'Free'}; #if 'Amount' > 0
         # convert dollars to cents ('$40' -> '4000', '50.5' -> '5050')
-        $price =~ s/^\$?(\d+)$/$1.00/; #if no decimal, add it for uniformity
+        $price =~ s/^\$?(\d+)$/$1.00/; #if no decimal, add it
         $price =~ s/^\$?(\d+)\.(\d)$/$1.${2}0/; #if incomplete decimal, add '0'
         $price =~ s/[\$\.]//g; #remove punctuation
     }
@@ -301,8 +301,8 @@ sub create_res {
 
             # add payment info, if provided
             if ($price and $fund) {
-                $qh_new_res_pymt->execute($res_id, $fund, $price, $order_type) if $UPDATE_DB;
-                $count_pymt_added++;
+                my $result = $qh_new_res_pymt->execute($res_id, $fund, $price, $order_type) if $UPDATE_DB;
+                $count_pymt_added++ if ($result or !$UPDATE_DB);
             }
 
             # add purchasing site info, if provided
