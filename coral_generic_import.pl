@@ -93,6 +93,9 @@ my $count_res_created = 0;
 my $count_res_found = 0;
 my $count_alt_issns = 0;
 my $count_pymt_added = 0;
+my $count_orgs_found = 0;
+my $count_orgs_created = 0;
+my $count_new_orgs_matched = 0;
 
 # CONSTANTS
 my $STATUS_IN_PROGRESS = 1;
@@ -128,7 +131,7 @@ $query = "INSERT INTO `ResourcePurchaseSiteLink`(`resourceID`, `purchaseSiteID`)
 my $qh_new_res_purch = $res_dbh->prepare($query);
 
 # create new organization
-$query = "INSERT INTO `Organization` (`createDate`, `createLoginID`, `name`, `noteText`) VALUES (CURDATE(), 'system', ?, ?)";
+$query = "INSERT INTO `Organization` (`createDate`, `createLoginID`, `name`) VALUES (CURDATE(), 'system', ?)";
 my $qh_new_org = $org_dbh->prepare($query);
 
 # link resource to an organization (only for new orgs)
@@ -136,9 +139,8 @@ $query = "INSERT INTO `ResourceOrganizationLink` (`resourceID`, `organizationID`
 my $qh_res_org_link = $res_dbh->prepare($query);
 
 # find existing links for this org and resource
-$query = "SELECT `organizationRoleID` FROM `ResourceOrganizationLink` WHERE `resourceID` = ? AND `organizationID` = ?";
-my $qh_find_res_org_links = $res_dbh->prepare($query);
-
+#$query = "SELECT `organizationRoleID` FROM `ResourceOrganizationLink` WHERE `resourceID` = ? AND `organizationID` = ?";
+#my $qh_find_res_org_links = $res_dbh->prepare($query);
 
 
 # GRAB EXISTING ORGS FROM CORAL DB
@@ -149,9 +151,10 @@ $qh_temp->execute();
 while (my ($org_id, $org_name) = $qh_temp->fetchrow_array) {
     my $standard_name = standardize_org_name($org_name);
     $orgs{$standard_name} = {
-        'id' => $org_id, 
-        'matches' => 0, 
-        'coral_name' => $org_name
+        'id' => $org_id,
+        'matches' => 0,
+        #'imported_name' => '', #filled when Orgs are read from import file
+        'coral_name' => $org_name,
     };
 }
 
@@ -172,6 +175,12 @@ while ( $row = $csv->getline( $fh ) ) {
             $values{$key} = $columns{$key};
         }
     }
+
+    my $pub_name = $values{'publisher'};
+
+# CREATE ORGANIZATION
+    my %org_ids = ();
+    $org_ids{'publisher'} = create_org($pub_name);
 
 # CREATE RESOURCE
 
@@ -204,8 +213,30 @@ $csv->eof or $csv->error_diag();
 close $fh;
 
 
+# PRINT ORGS: SHOWS WHICH IMPORTED ORGS WERE FOUND IN CORAL ONLY, IMPORT FILE ONLY, OR BOTH
+if ($DEBUG) {
+    print "\n---------------------------------------\n\n";
+    foreach my $org_name (sort keys %orgs) {
+        my $imported_name = $orgs{$org_name}->{'imported_name'};
+        my $coral_name = $orgs{$org_name}->{'coral_name'};
+
+        if (defined $orgs{$org_name}->{'matches'}) {
+            if ($orgs{$org_name}->{'matches'} > 0) {
+                print "BOTH: $imported_name\n\t$coral_name (". $orgs{$org_name}->{'matches'} .")\n";
+            } else {
+                print "CORAL: $org_name ($coral_name)\n";
+            }
+        } else {
+            print "IMPORT: $org_name ($imported_name)\n";
+        }
+    }
+}
+
 # OUTPUT SUMMARY
 print "\n---------------------------------------\n";
+print "Found: $count_orgs_found Orgs (already in Coral)\n";
+print "Created: $count_orgs_created Orgs\n";
+print "- matched: $count_new_orgs_matched Orgs\n";
 print "Found  : $count_res_found Resources (already in Coral)\n";
 print "Created: $count_res_created Resources\n";
 print "-- used: $count_alt_issns Alternate ISSNs\n";
@@ -224,10 +255,55 @@ exit;
 
 
 
+# FUNCTION: Create or SKIP an Organization (searching by name)
+# - don't overwrite any data
+sub create_org {
+    my $org_input_name = shift;
+    my $org_standard_name = standardize_org_name($org_input_name);
+    my $org;
+
+    if (exists $orgs{$org_standard_name}) {
+        $org = $orgs{$org_standard_name};
+    }
+
+    if ($org) {
+        if (defined $org->{'coral_name'}) { # must be in coral
+            $count_orgs_found++;
+            $org->{'matches'}++;
+        } else {
+            $count_new_orgs_matched++;
+        }
+    } else {
+        # create blank entry in hash, to be filled later
+        $org = {'id' => undef, 'matches' => undef, 'imported_name' => undef, 'coral_name' => undef};
+
+        # create new Org in Coral
+        my $org_input_clean = $org_input_name;
+        if ($titlecase) {
+            $org_input_clean = lc($org_input_clean);
+            # capitalize first letter of each word
+            #$org_input_clean =~ s/\b(\w)/\u$1/g; #doesn't work with binary chars
+            $org_input_clean =~ s/^(\w)/\u$1/; #capitalize first letter of string
+            $org_input_clean =~ s/([-\s])(\w)/$1\u$2/g; #capitalize first letter after hyphen or space
+        }
+        my $rows_affected = $qh_new_org->execute($org_input_clean) if $UPDATE_DB;
+
+        if ($rows_affected == 1 or !$UPDATE_DB) {
+            $org->{'id'} = $org_dbh->last_insert_id(0, 0, 0, 0); #0s prevent error about expected params, but mysql appears to ignore them (re: DBI docs in cpan)
+            $org->{'imported_name'} = $org_input_clean;
+            $count_orgs_created++;
+        } else {
+            warn "QUERY ERROR: Cannot create Org: $org_input_name\n";
+        }
+        $orgs{$org_standard_name} = $org;
+    }
+
+    return $org->{'id'};
+}
+
 
 # FUNCTION: Create or SKIP a resource if found (matching on ISSN)
 # - don't overwrite any data
-# - add link to EBSCOnet record, if needed
 sub create_res {
     my ($org_ids_ref, $params) = (shift, shift);
     my $title = $params->{'title'};
@@ -321,9 +397,9 @@ sub standardize_org_name {
     $name = uc($name);
 
     # REMOVE punctuation, common words, abbrevs, extra spaces
-    $name =~ s/[&,'\.]//g;
+    $name =~ s/[&,'\.:]//g;
     $name =~ s/-/ /g;
-    $name =~ s/\b(CO|INC|LLC|LTD|GMBH|AND|FOR|OF)\b//g; #often omitted
+    $name =~ s/\b(CO|INC|LLC|LTD|GMBH|AND|FOR|OF|AT|A|THE)\b//g; #often omitted
     $name =~ s/\b(PUBL|PUBLISHERS|PUBLISHING)\b//g; #often abbrev, generic
     $name =~ s/\b(LIMITED|PRESS)\b//g; #often abbrev, generic
 #creates false positivies # $name =~ s/\/.*$//; #remove "/" and everything after 
@@ -344,6 +420,15 @@ sub standardize_org_name {
     $name =~ s/\bSOC\b/SOCIETY/i;
     $name =~ s/\bSVCS\b/SERVICES/i;
     $name =~ s/\bUNIV\b/UNIVERSITY/i;
+
+# ONE-TIME USE: FOR Project Muse data load
+    $name =~ s/\bPENN\b/PENNSYLVANIA/i;
+    $name =~ s/\bNORTH AMERICAN SOCIETY SPORT HIST\b/NORTH AMERICAN SOCIETY SPORT HISTORY/i;
+    $name =~ s/\bMURPHY INSTITUTE\/CITY UNIVERSITY NEW YORK\b/JOSEPH A MURPHY INSTITUTE CITY UNIVERSITY NEW YORK/i;
+    $name =~ s/\bMOSAIC JOURNAL INTERDISCIPLINARY STUDY LITERATURE\b/MOSAIC/i;
+    $name =~ s/\bMID AMERICAN STUDIES ASSOCIATION\b/MID AMERICA AMERICAN STUDIES ASSOCIATION/i;
+    $name =~ s/\bMELUS SOCIETY STUDY MULTI ETHNIC LITERATURE UNITED STATES\b/MELUS/i;
+    $name =~ s/\bCENTER IRISH STUDIES UNIVERSITY ST THOMAS\b/CENTER IRISH STUDIES/i;
     
     return $name;
 }
