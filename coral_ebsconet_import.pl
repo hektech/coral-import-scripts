@@ -237,7 +237,7 @@ $csv->eof or $csv->error_diag();
 close $fh;
 
 
-# PRINT ORGS: SHOWS WHICH EBSCO ORGS WERE FOUND IN CORAL, EBSCO OR BOTH
+# PRINT ORGS: SHOWS WHICH EBSCO ORGS WERE FOUND IN CORAL ONLY, EBSCO ONLY, OR BOTH
 if ($DEBUG) {
     foreach my $org_name (sort keys %orgs) {
         my $ebsco_name = $orgs{$org_name}->{'ebsco_alias'};
