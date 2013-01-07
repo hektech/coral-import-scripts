@@ -330,9 +330,7 @@ sub create_res {
     my $acq_type_id = undef;
     if (defined $price) {
         $acq_type_id = ($price > 0) ? $acq_type_ids{'Paid'} : $acq_type_ids{'Free'}; #if 'Amount' > 0
-        # convert dollars to cents ('$40' -> '4000', '50.5' -> '5050')
-        #$price =~ s/^\$?(\d+)$/$1.00/; #if no decimal, add it
-        #$price =~ s/^\$?(\d+)\.(\d)$/$1.${2}0/; #if incomplete decimal, add '0'
+        # convert dollars to cents ('$40.00' -> '4000')
         $price =~ s/[\$\.,]//g; #remove punctuation
     }
     my $fund = $params->{'fund'};
