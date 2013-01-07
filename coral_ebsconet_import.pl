@@ -310,7 +310,10 @@ sub create_org {
         # create new Org in Coral
         my $org_ebsco_clean = lc($org_ebsco);
         $org_ebsco_clean =~ s/%.*$//; #remove "%" and everything after
-        $org_ebsco_clean =~ s/\b(\w)/\u$1/g; #capitalize first letter of each word
+        # capitalize first letter of each word
+        #$org_ebsco_clean =~ s/\b(\w)/\u$1/g; #doesn't work with binary chars
+        $org_ebsco_clean =~ s/^(\w)/\u$1/; #capitalize first letter of string
+        $org_ebsco_clean =~ s/([-\s])(\w)/$1\u$2/g; #capitalize first letter after hyphen or space
         my $rows_affected = $qh_new_org->execute($org_ebsco_clean, $note_text) if $UPDATE_DB;
 
         if ($rows_affected == 1 or !$UPDATE_DB) {
