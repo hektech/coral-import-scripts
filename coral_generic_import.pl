@@ -8,7 +8,7 @@ use Getopt::Long;
 ##  DEV FLAGS  ##
 #################
 my $UPDATE_DB = 0; # 0 = don't make any changes to db
-my $DEBUG = 0;
+my $DEBUG = 1;
 
 
 # GET COMMAND LINE OPTIONS
@@ -20,7 +20,7 @@ my $config_filename = 'coral_db.conf'; #set default
 my $titlecase;
 my $utf8;
 my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase, 'utf8' => \$utf8);
-GetOptions (\%columns, 'help|h', 'filename|f=s', 'config_file=s', 'titlecase|tc', 'utf8', 'title|t=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
+GetOptions (\%columns, 'help|h', 'filename|f=s', 'config_file=s', 'titlecase|tc', 'utf8', 'title|t=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'issn=s', 'alt_issn=s', 'url=s', 'publisher=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s', 'note_type=s', 'note_tab=s', 'note_text=s');
 
 my $missing = 0;
 my @required_cols = ('filename', 'title', 'issn', 'url', 'publisher');
@@ -33,10 +33,21 @@ if ($help or $missing) {
     print <<"HELPTEXT";
 Usage: coral_generic_import.pl -f FILENAME COLUMNS
 
-      COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -fund=N -order_type=N -purchasing_site=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -titlecase -utf8]
+      COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -fund=N -order_type=N -purchasing_site=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -note_type=N -note_tab=N -note_text=N -titlecase -utf8]
 
       -f [--filename]:  File must be in CSV format
       -alt_issn:        Specify a backup column if the first ISSN is blank (often used for print ISSN vs. e-ISSN)
+      -note_text:       Adds a note of type <note_type> to tab <note_tab>
+      -note_tab:        Specify on which tab to display the note in Resource display (default: Product).
+                        Options: (Product|Acquisitions|Access|Cataloging)
+      -note_type:    Specify the type of note, using the number or the string (default: 'General').
+                        Options:
+                            'Product Details' => 1, 
+                            'Acquisition Details' => 2, 
+                            'Access Details' => 3, 
+                            'General' => 4, 
+                            'Licensing Details' => 5, 
+                            'Initial Note' => 6
       -titlecase:       Capitalize only the first letter of every word in title (very basic)
       -utf8:            Read the CSV file as UTF-8 data
 
@@ -96,6 +107,7 @@ my $count_pymt_added = 0;
 my $count_orgs_found = 0;
 my $count_orgs_created = 0;
 my $count_new_orgs_matched = 0;
+my $count_res_notes_created = 0;
 
 # CONSTANTS
 my $STATUS_IN_PROGRESS = 1;
@@ -108,6 +120,7 @@ my @optional_org_types = ('provider', 'platform', 'consortium', 'vendor');
 my %acq_type_ids = ('Paid' => 1, 'Free' => 2, 'Trial' => 3);
 my %order_types = ('Ongoing' => 1, 'One Time' => 2);
 my %purchase_sites = ('Main Library' => 1, 'Seminary' => 2); #DB table name: PurchaseSite
+my %note_types = ('Product Details' => 1, 'Acquisition Details' => 2, 'Access Details' => 3, 'General' => 4, 'Licensing Details' => 5, 'Initial Note' => 6);
 
 
 # PREPARE REPEATED QUERIES (for efficiency)
@@ -141,6 +154,9 @@ my $qh_res_org_link = $res_dbh->prepare($query);
 # find existing links for this org and resource
 #$query = "SELECT `organizationRoleID` FROM `ResourceOrganizationLink` WHERE `resourceID` = ? AND `organizationID` = ?";
 #my $qh_find_res_org_links = $res_dbh->prepare($query);
+
+$query = "INSERT INTO `ResourceNote`(`resourceID`, `noteTypeID`, `tabName`, `updateDate`, `updateLoginID`, `noteText`) VALUES (?, ?, ?, CURDATE(), 'system', ?)";
+my $qh_new_res_note = $res_dbh->prepare($query);
 
 
 # GRAB EXISTING ORGS FROM CORAL DB
@@ -241,6 +257,7 @@ print "Found  : $count_res_found Resources (already in Coral)\n";
 print "Created: $count_res_created Resources\n";
 print "-- used: $count_alt_issns Alternate ISSNs\n";
 print "-- added: $count_pymt_added Prices\n";
+print "Created: $count_res_notes_created Resource Notes\n";
 print "---------------------------------------\n";
 
 if (!$UPDATE_DB) {
@@ -321,6 +338,12 @@ sub create_res {
     my $fund = $params->{'fund'};
     my $order_type = $order_types{$params->{'order_type'}};
     my $purch_site_id = $purchase_sites{$params->{'purchasing_site'}};
+    my $note_type_id = $params->{'note_type'} || 'General';
+    if ($note_type_id !~ /^[0-9]+$/) {
+        $note_type_id = $note_types{$note_type_id};
+    }
+    my $note_tab = $params->{'note_tab'} || 'Product';
+    my $note_text = $params->{'note_text'};
     my $res_id = 0;
 
     # if ISSN column is blank, use alternate if supplied
@@ -373,6 +396,14 @@ sub create_res {
                 if (defined $org_ids_ref->{$org_type}) {
                     $qh_res_org_link->execute($res_id, $org_ids_ref->{$org_type}, $ORG_ROLES{$org_type}) if $UPDATE_DB;
                 }
+            }
+
+            # add resource notes, if provided
+            #`resourceID`, `noteTypeID`, `tabName`, `noteText`
+            if ($note_text) {
+                print "NEW RES NOTE: $res_id, $note_type_id, $note_tab: $note_text\n" if $DEBUG;
+                $qh_new_res_note->execute($res_id, $note_type_id, $note_tab, $note_text) if $UPDATE_DB;
+                $count_res_notes_created++;
             }
 
             # add payment info, if provided
