@@ -14,11 +14,11 @@ my $DEBUG = 0;
 # GET COMMAND LINE OPTIONS
 # the first few variables do not belong in columns hash, but I want GetOptions to save the column variables in the hash automatically; this was the simplest way I could find; for more info see:
 # http://perldoc.perl.org/Getopt/Long.html#Storing-options-values-in-a-hash
-my $help = '';
-my $filename = '';
+my $help;
+my $filename;
 my $config_filename = 'coral_db.conf'; #set default
-my $titlecase = '';
-my $utf8 = '';
+my $titlecase;
+my $utf8;
 my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase, 'utf8' => \$utf8);
 GetOptions (\%columns, 'help|h', 'filename|f=s', 'config_file=s', 'titlecase', 'utf8', 'title|t=s', 'title_num|t_num=s', 'issn=s', 'alt_issn=s', 'format=s', 'title_url|url=s', 'price=s', 'publisher|pub=s', 'publisher_number|pub_num=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
 
