@@ -20,7 +20,7 @@ my $config_filename = 'coral_db.conf'; #set default
 my $titlecase;
 my $utf8;
 my %columns = ('help' => \$help, 'filename' => \$filename, 'config_file' => \$config_filename, 'titlecase' => \$titlecase, 'utf8' => \$utf8);
-GetOptions (\%columns, 'help|h', 'filename|f=s', 'config_file=s', 'titlecase', 'utf8', 'title|t=s', 'title_num|t_num=s', 'issn=s', 'alt_issn=s', 'format=s', 'title_url|url=s', 'price=s', 'publisher|pub=s', 'publisher_number|pub_num=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
+GetOptions (\%columns, 'help|h', 'filename|f=s', 'config_file=s', 'titlecase', 'utf8', 'title|t=s', 'title_num|t_num=s', 'issn=s', 'alt_issn=s', 'format=s', 'title_url|url=s', 'price=s', 'fund=s', 'order_type=s', 'purchasing_site|purch_site|site=s', 'publisher|pub=s', 'publisher_number|pub_num=s', 'provider=s', 'platform=s', 'consortium=s', 'vendor=s');
 
 my $missing = 0;
 my @required_cols = ('filename', 'title', 'title_num', 'issn', 'publisher', 'publisher_number');
@@ -33,13 +33,12 @@ if ($help or $missing) {
     print <<"HELPTEXT";
 Usage: coral_generic_import.pl -f FILENAME COLUMNS
 
-      COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -titlecase -utf8]
+      COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -fund=N -order_type=N -purchasing_site=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -titlecase -utf8]
 
       -f [--filename]:  File must be in CSV format
       -alt_issn:        Specify a backup column if the first ISSN is blank (often used for print ISSN vs. e-ISSN)
       -titlecase:       Capitalize only the first letter of every word in title (very basic)
       -utf8:            Read the CSV file as UTF-8 data
-
 NOTE: For any COLUMNS variable, give an integer to point to a column in the file (begins with zero); or give a value in quotes.
 
 HELPTEXT
@@ -77,7 +76,6 @@ my $encoding = ":encoding(utf8)" if $utf8;
 open my $fh, "<$encoding", $filename or die "$filename: $!\n";
 
 
-
 # READ IN CORAL DB VARIABLES
 our ($host, $port, $res_db, $org_db, $user, $pw);
 do $config_filename; #grab DB variables
@@ -106,6 +104,8 @@ my $count_contacts_added = 0;
 my $STATUS_PROGRESS = 1;
 my $RESOURCE_TYPE_PERIODICALS = 4;
 my $ALIAS_TYPE_EBSCO = 4;
+my $CURRENCY_CODE_USA = 'USD';
+my $ORDER_TYPE_ONETIME = 2;
 
 # HELPFUL HASHES
 my %ORG_ROLES = ('consortium' => 1, 'library' => 2, 'platform' => 3, 'provider' => 4, 'publisher' => 5, 'vendor' => 6);
@@ -120,6 +120,8 @@ my %format_ids = ( #match EBSCO format strings to Coral format ids
 );
 my %acq_type_ids = ('Paid' => 1, 'Free' => 2, 'Trial' => 3);
 my %note_types = ('Product Details' => 1, 'Acquisition Details' => 2, 'Access Details' => 3, 'General' => 4, 'Licensing Details' => 5, 'Initial Note' => 6);
+my %order_types = ('Ongoing' => 1, 'One Time' => 2);
+my %purchase_sites = ('Main Library' => 1, 'Seminary' => 2); #DB table name: PurchaseSite
 
 
 # PREPARE REPEATED QUERIES (for efficiency)
@@ -134,9 +136,10 @@ my $qh_get_res = $res_dbh->prepare($query);
 $query = "INSERT INTO `Resource` (`createDate`, `createLoginID`, `titleText`, `isbnOrISSN`, `statusID`, `resourceTypeID`, `resourceFormatID`, `acquisitionTypeID`, `descriptionText`, `resourceURL`) VALUES (CURDATE(), 'system', ?, ?, $STATUS_PROGRESS, $RESOURCE_TYPE_PERIODICALS, ?, ?, ?, ?)";
 my $qh_new_res = $res_dbh->prepare($query);
 
-# TODO add a payment; which fundName to use? ex. "Periodicals AA 2012"
-# INSERT INTO `ResourcePayment`(`resourceID`, `fundName`, `selectorLoginID`, `paymentAmount`, `orderTypeID`, `currencyCode`) VALUES ([value-1],[value-2],[value-3],[value-4],[value-5],[value-6])
-# my %order_types = ('Ongoing' => 1, 'One Time' => 2);
+# create a payment for a resource
+# NOTE: paymentAmount is in cents (i.e. $40.00 -> "4000")
+$query = "INSERT INTO `ResourcePayment`(`resourceID`, `fundName`, `paymentAmount`, `orderTypeID`, `currencyCode`) VALUES (?, ?, ?, ?, $CURRENCY_CODE_USA)";
+my $qh_new_res_pymt = $res_dbh->prepare($query);
 
 # create new organization
 $query = "INSERT INTO `Organization` (`createDate`, `createLoginID`, `name`, `noteText`) VALUES (CURDATE(), 'system', ?, ?)";
@@ -237,7 +240,7 @@ $csv->eof or $csv->error_diag();
 close $fh;
 
 
-# PRINT ORGS: SHOWS WHICH EBSCO ORGS WERE FOUND IN CORAL ONLY, EBSCO ONLY, OR BOTH
+# PRINT ORGS: SHOWS WHICH EBSCO ORGS WERE FOUND IN CORAL, EBSCO OR BOTH
 if ($DEBUG) {
     foreach my $org_name (sort keys %orgs) {
         my $ebsco_name = $orgs{$org_name}->{'ebsco_alias'};
@@ -363,10 +366,13 @@ sub create_res {
         $format_id = $format_ids{$params->{'format_id'}} ? $format_ids{$params->{'format_id'}} : $format_ids{'Other'};
     }
     my $acq_type_id = undef;
-    if (defined $params->{'price'}) {
-        my $price = $params->{'price'};
+    my $price = $params->{'price'};
+    if (defined $price) {
         $acq_type_id = ($price > 0) ? $acq_type_ids{'Paid'} : $acq_type_ids{'Free'}; #if 'Amount' > 0
+        # convert dollars to cents ('$40.00' -> '4000')
+        $price =~ s/[\$\.,]//g; #remove punctuation
     }
+    my $fund = $params->{'fund'};
     my $url = $params->{'title_url'};
     my $res_id = 0;
 
@@ -421,6 +427,11 @@ sub create_res {
                 if (defined $org_ids_ref->{$org_type}) {
                     $qh_res_org_link->execute($res_id, $org_ids_ref->{$org_type}, $ORG_ROLES{$org_type}) if $UPDATE_DB;
                 }
+            }
+
+            # add payment info if provided
+            if (defined($price) and defined($fund)) {
+                $qh_new_res_pymt->execute($res_id, $fund, $price, $ORDER_TYPE_ONETIME) if $UPDATE_DB;
             }
         }
     }
