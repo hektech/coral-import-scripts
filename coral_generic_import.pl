@@ -8,7 +8,7 @@ use Getopt::Long;
 ##  DEV FLAGS  ##
 #################
 my $UPDATE_DB = 0; # 0 = don't make any changes to db
-my $DEBUG = 1;
+my $DEBUG = 0;
 
 
 # GET COMMAND LINE OPTIONS
@@ -57,12 +57,14 @@ HELPTEXT
 
     if ($DEBUG) { #output variables
         print "Opening file: $filename...\n";
+        my $temp_error = '';
         foreach (@required_cols) {
             if ( !exists($columns{$_}) ) {
-                print "ERROR: You must provide all of the following:\n\t" . join("\n\t", @required_cols) . "\n";
+                $temp_error .= "$_: $columns{$_}\n";
             }
-            print "$_: $columns{$_}\n";
         }
+        print "ERROR: You must provide all of the following:\n\t" . join("\n\t", @required_cols) . "\n";
+        print $temp_error;
     }
     exit;
 }
