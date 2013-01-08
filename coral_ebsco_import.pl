@@ -31,7 +31,7 @@ foreach (@required_cols) {
 # If '-h' or '--help', or missing required options, print the help text
 if ($help or $missing) {
     print <<"HELPTEXT";
-Usage: coral_generic_import.pl -f FILENAME COLUMNS
+Usage: coral_ebsco_import.pl -f FILENAME COLUMNS
 
       COLUMNS: -title=N -title_num=N -issn=N -publisher=N -pub_num=N [-alt_issn=N -format=N -price=N -fund=N -order_type=N -purchasing_site=N -title_url=N -provider=N -platform=N -consortium=N -vendor=N -titlecase -utf8]
 
