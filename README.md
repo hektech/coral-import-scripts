@@ -1,6 +1,6 @@
 coral-import-scripts
 ====================
-Basic generic and custom import/dataloader scripts
+Provides basic import/dataloader scripts for getting data into the CORAL ERM.  The generic import script works well with simple data files from most smaller providers.  The EBSCO import script is customized for the special requirements of loading data from EBSCO.
 
 Quick Start Guide
 -------------
