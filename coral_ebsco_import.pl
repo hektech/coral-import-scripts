@@ -290,7 +290,7 @@ exit;
 sub create_org {
     my ($org_ebsco, $org_addr, $org_num) = (shift, shift, shift);
     my $org_clean = standardize_org_name($org_ebsco);
-    my $note_text = "<a href='http://www.ebsconet.com/publisher.aspx?PublisherNumber=$org_num'>EBSCO link</a>";
+    my $note_text = "<a href='https://www.ebsconet.com/Titles/Publisher/Publisher?publisherNumber=$org_num'>EBSCO link</a>";
     my $org;
 
     if (exists $orgs_by_alias{$org_ebsco}) {
@@ -415,7 +415,7 @@ sub create_res {
         print "Creating new Resource: [$standardized_issn] $title ($url)\n";
 
         # undef/null values are usually allowed
-        my $rows_affected = $qh_new_res->execute($title, $standardized_issn, $format_id, $acq_type_id, "<a href='http://www.ebsconet.com/titledetail.aspx?TitleNumber=$title_num'>EBSCO link</a>", $url) if $UPDATE_DB;
+        my $rows_affected = $qh_new_res->execute($title, $standardized_issn, $format_id, $acq_type_id, "<a href='https://www.ebsconet.com/Titles/Titles/TitleDetails?TitleNumber=$title_num'>EBSCO link</a>", $url) if $UPDATE_DB;
         if ($rows_affected == 1 or !$UPDATE_DB) {
             $count_res_created++;
             $res_id = $res_dbh->last_insert_id(0, 0, 0, 0); #0s prevent error about expected params, but mysql appears to ignore them (re: DBI docs in cpan)
