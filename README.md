@@ -63,7 +63,7 @@ It is also helpful to place your CSV data file in the same directory as the scri
 
 Next, you need to enter your CORAL database credentials in coral_db.conf.  Use the username/password that normally accesses the CORAL database, the basic one with only Select/Insert/Update/Delete privileges.
 
-Lastly, there are two built-in constants that you need to know about: *$UPDATE_DB* (which controls whether the script really changes the database or only pretends) and *$DEBUG* (which controls the level of output).  Both are binary flags set in the code, and both are set to zero by default (meaning no changes to the DB, and no debug output).  You can change them in either script, but make sure you know when you are really changing the DB, and always test on a copy of your DB and/or backup your DB before running these scripts.
+Lastly, there are two built-in constants that you need to know about: **$UPDATE_DB** (which controls whether the script really changes the database or only pretends) and **$DEBUG** (which controls the level of output).  Both are binary flags set in the code, and both are set to zero by default (meaning no changes to the DB, and no debug output).  You can change them in either script, but make sure you know when you are really changing the DB, and always test on a copy of your DB and/or backup your DB before running these scripts.
 
 Here are sample commands for running each of the import scripts.
 
