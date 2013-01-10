@@ -462,6 +462,7 @@ sub standardize_org_name {
     $name =~ s/^SOC INDUST APPLIED MATHEMATICS$/SOCIETY INDUSTRIAL APPLIED MATHEMATICS/i;
     $name =~ s/^TAYLOR & FRANCIS GROUP$/TAYLOR FRANCIS/i;
     $name =~ s/^UNIV OF MICHIGAN \/DEPT OF MATH$/UNIVERSITY MICHIGAN DEPARTMENT MATHEMATICS/i;
+    $name =~ s/^WILEY-BLACKWELL$/JOHN WILEY & SONS LTD/i;
 
     # REMOVE punctuation, common words, abbrevs, extra spaces
     $name =~ s/[&,'\.]//g;
