@@ -47,7 +47,7 @@ HELPTEXT
         print "Opening file: $filename...\n";
         foreach (@required_cols) {
             if ( !exists($columns{$_}) ) {
-                print "ERROR: You must provide all of the following:\n\t" . join("\n\t", @required_cols) . "\n";
+                warn "ERROR: You must provide all of the following:\n\t" . join("\n\t", @required_cols) . "\n";
             }
             print "$_: $columns{$_}\n";
         }
@@ -229,7 +229,7 @@ while ( $row = $csv->getline( $fh ) ) {
             if (exists $orgs{$temp_name}) {
                 $org_ids{$org_type} = $orgs{$temp_name}->{id};
             } else {
-                print "WARN: Org not found: $org_type = [$temp_name]\n";
+                warn "WARNING: Org not found: $org_type = [$temp_name]\n";
             }
         }
     }
@@ -262,7 +262,7 @@ if ($DEBUG) {
 print "\n---------------------------------------\n";
 print "Found: $count_orgs_found Orgs (already in Coral)\n";
 print "Created: $count_orgs_created Orgs\n";
-print "- matched: $count_new_orgs_matched Orgs\n";
+#print "- matched: $count_new_orgs_matched Orgs\n";
 print "Added: $count_aliases_added Org Aliases\n";
 #print "Added: $count_contacts_added Org Contacts\n";
 print "Found: $count_res_found Resources (already in Coral)\n";
@@ -322,6 +322,7 @@ sub create_org {
         if ($rows_affected == 1 or !$UPDATE_DB) {
             $org->{'id'} = $org_dbh->last_insert_id(0, 0, 0, 0); #0s prevent error about expected params, but mysql appears to ignore them (re: DBI docs in cpan)
             $count_orgs_created++;
+            print "Creating new Organization: ($org_num) $org_ebsco\n";
         } else {
             warn "QUERY ERROR: Cannot create Org: $org_ebsco\n";
         }
@@ -334,6 +335,7 @@ sub create_org {
         if ($rows_affected == 1 or !$UPDATE_DB) {
             $org->{'ebsco_alias'} = $org_ebsco;
             $count_aliases_added++;
+            print "Creating Alias for Organization: ($org_id) $org_ebsco\n";
         } else {
             warn "QUERY ERROR: Cannot create Alias for Org ID: $org_id, Name: $org_ebsco\n";
         }
@@ -395,11 +397,11 @@ sub create_res {
         $res_id = $qh_get_res->fetchrow_array; #grab the ID
 
         if ($res_id) { #if found a match
-            print "**** SKIPPING Existing Resource ($res_id): [$issn] $title ($url)\n";
+            print "**** SKIPPING Existing Resource ($res_id): [$issn] $title ($url)\n" if $DEBUG;
             $count_res_found++;
         }
     } else {
-        print "#### MAY CREATE DUPLICATE (bad or missing ISSN [$standardized_issn])...\n";
+        warn "#### MAY CREATE DUPLICATE (bad or missing ISSN [$standardized_issn]): $title\n";
         $standardized_issn = "";
     }
 
@@ -467,7 +469,7 @@ sub standardize_org_name {
     $name =~ s/\b(CO|INC|LLC|LTD|GMBH|AND|FOR|OF)\b//g; #often omitted
     $name =~ s/\b(PUBL|PUBLISHERS|PUBLISHING)\b//g; #often abbrev, generic
     $name =~ s/\b(LIMITED|PRESS)\b//g; #often abbrev, generic
-#creates false positivies # $name =~ s/\/.*$//; #remove "/" and everything after 
+#creates false positives # $name =~ s/\/.*$//; #remove "/" and everything after 
     $name =~ s/%.*$//; #remove "%" and everything after
     $name =~ s/^[\s]*//; #trim opening whitespace
     $name =~ s/[\s]*$//; #trim trailing whitespace
