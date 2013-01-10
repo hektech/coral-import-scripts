@@ -499,7 +499,6 @@ sub standardize_org_name {
 # FUNCTION: Clean up and standardize the Resource name
 sub cleanup_res_name {
     my $name = shift;
-    $name = uc($name);
 
     # REMOVE extra spaces
     $name =~ s/^[\s]*//; #trim opening whitespace
