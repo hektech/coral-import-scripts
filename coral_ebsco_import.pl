@@ -99,6 +99,7 @@ my $count_res_found = 0;
 my $count_alt_issns = 0;
 my $count_aliases_added = 0;
 my $count_contacts_added = 0;
+my $count_pymt_added = 0;
 
 # CONSTANTS
 my $STATUS_PROGRESS = 1;
@@ -268,6 +269,7 @@ print "Added: $count_aliases_added Org Aliases\n";
 print "Found: $count_res_found Resources (already in Coral)\n";
 print "Created: $count_res_created Resources\n";
 print "- used $count_alt_issns Alternate ISSNs\n";
+print "- added $count_pymt_added payments to resources\n";
 print "---------------------------------------\n";
 
 if (!$UPDATE_DB) {
@@ -322,7 +324,7 @@ sub create_org {
         if ($rows_affected == 1 or !$UPDATE_DB) {
             $org->{'id'} = $org_dbh->last_insert_id(0, 0, 0, 0); #0s prevent error about expected params, but mysql appears to ignore them (re: DBI docs in cpan)
             $count_orgs_created++;
-            print "Creating new Organization: ($org_num) $org_ebsco\n";
+            print "Created new Organization: ($org_num) $org_ebsco\n";
         } else {
             warn "QUERY ERROR: Cannot create Org: $org_ebsco\n";
         }
@@ -335,7 +337,7 @@ sub create_org {
         if ($rows_affected == 1 or !$UPDATE_DB) {
             $org->{'ebsco_alias'} = $org_ebsco;
             $count_aliases_added++;
-            print "Creating Alias for Organization: ($org_id) $org_ebsco\n";
+            print "Created Alias for Organization: ($org_id) $org_ebsco\n";
         } else {
             warn "QUERY ERROR: Cannot create Alias for Org ID: $org_id, Name: $org_ebsco\n";
         }
@@ -414,12 +416,12 @@ sub create_res {
             $title =~ s/^(\w)/\u$1/; #capitalize first letter of string
             $title =~ s/([-\s])(\w)/$1\u$2/g; #capitalize first letter after hyphen or space
         }
-        print "Creating new Resource: [$standardized_issn] $title ($url)\n";
 
         # undef/null values are usually allowed
         my $rows_affected = $qh_new_res->execute($title, $standardized_issn, $format_id, $acq_type_id, "<a href='https://www.ebsconet.com/Titles/Titles/TitleDetails?TitleNumber=$title_num'>EBSCO link</a>", $url) if $UPDATE_DB;
         if ($rows_affected == 1 or !$UPDATE_DB) {
             $count_res_created++;
+            print "Created new Resource: [$standardized_issn] $title ($url)\n";
             $res_id = $res_dbh->last_insert_id(0, 0, 0, 0); #0s prevent error about expected params, but mysql appears to ignore them (re: DBI docs in cpan)
 
             # linking resource to publisher
@@ -434,6 +436,7 @@ sub create_res {
             # add payment info if provided
             if (defined($price) and defined($fund)) {
                 $qh_new_res_pymt->execute($res_id, $fund, $price, $ORDER_TYPE_ONETIME) if $UPDATE_DB;
+                $count_pymt_added++;
             }
         }
     }
