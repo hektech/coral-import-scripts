@@ -139,7 +139,7 @@ my $qh_new_res = $res_dbh->prepare($query);
 
 # create a payment for a resource
 # NOTE: paymentAmount is in cents (i.e. $40.00 -> "4000")
-$query = "INSERT INTO `ResourcePayment`(`resourceID`, `fundName`, `paymentAmount`, `orderTypeID`, `currencyCode`) VALUES (?, ?, ?, ?, $CURRENCY_CODE_USA)";
+$query = "INSERT INTO `ResourcePayment`(`resourceID`, `fundName`, `paymentAmount`, `orderTypeID`, `currencyCode`) VALUES (?, ?, ?, ?, '$CURRENCY_CODE_USA')";
 my $qh_new_res_pymt = $res_dbh->prepare($query);
 
 # create new organization
@@ -372,9 +372,13 @@ sub create_res {
     my $acq_type_id = undef;
     my $price = $params->{'price'};
     if (defined $price) {
+        # convert dollars to cents ('40.25' -> '4025', '40.5' -> '4050', '40' -> '4000')
+        if ($price =~ /(\d*)(\.(\d*))?/) {
+            my $cents = $3 . 0 x (2-length($3)); #right-pad cents with 0s
+            $price = $1 . $cents;
+        }
+        
         $acq_type_id = ($price > 0) ? $acq_type_ids{'Paid'} : $acq_type_ids{'Free'}; #if 'Amount' > 0
-        # convert dollars to cents ('$40.00' -> '4000')
-        $price =~ s/[\$\.,]//g; #remove punctuation
     }
     my $fund = $params->{'fund'};
     my $url = $params->{'title_url'};
@@ -421,7 +425,7 @@ sub create_res {
         my $rows_affected = $qh_new_res->execute($title, $standardized_issn, $format_id, $acq_type_id, "<a href='https://www.ebsconet.com/Titles/Titles/TitleDetails?TitleNumber=$title_num'>EBSCO link</a>", $url) if $UPDATE_DB;
         if ($rows_affected == 1 or !$UPDATE_DB) {
             $count_res_created++;
-            print "Created new Resource: [$standardized_issn] $title ($url)\n";
+            print "Created new Resource: [$standardized_issn] \{$price\} $title ($url)\n";
             $res_id = $res_dbh->last_insert_id(0, 0, 0, 0); #0s prevent error about expected params, but mysql appears to ignore them (re: DBI docs in cpan)
 
             # linking resource to publisher
@@ -434,7 +438,7 @@ sub create_res {
             }
 
             # add payment info if provided
-            if (defined($price) and defined($fund)) {
+            if ($price > 0 and defined($fund)) {
                 $qh_new_res_pymt->execute($res_id, $fund, $price, $ORDER_TYPE_ONETIME) if $UPDATE_DB;
                 $count_pymt_added++;
             }
