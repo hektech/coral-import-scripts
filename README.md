@@ -76,3 +76,18 @@ Run the EBSCO import:
 
     ./coral_ebsco_import.pl -f=../../coral/summary_of_pub.csv -title=0 -title_num=1 -issn=2 \
     -format=3 -price=12 -publisher=35 -pub_num=37 -url=42
+
+
+Troubleshooting
+---------------
+
+A common problem when importing data is incorrect formatting, which can cause errors such as this one:
+
+    CSV_PP ERROR: 2027 - EIQ - Quoted field not terminated
+
+This error means the import script encountered a line with some incorrect quoting that confuses the perl CSV module.  A solution is to correct the quoting in the data file by escaping any real quote marks by doubling them, like in this example:
+ 
+    foo,bar,"In order to use ""quote mark"", you have to escape them by using two ""quote marks"" at a time.",baz
+ 
+Learn more here (especially in the "escape_char" section):
+http://search.cpan.org/~makamaka/Text-CSV-1.21/lib/Text/CSV_PP.pm
